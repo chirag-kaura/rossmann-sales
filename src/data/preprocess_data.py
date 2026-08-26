@@ -41,12 +41,15 @@ def clean_train_data(train):
     # Convert Date to datetime
     train["Date"] = pd.to_datetime(train["Date"], errors="coerce")
 
-    # Standardize StateHoliday
-    train["StateHoliday"] = train["StateHoliday"].astype(str).str.strip()
-
-    # Convert "0.0" to "0"
-    train["StateHoliday"] = train["StateHoliday"].replace(
-        {"0.0": "0", "nan": "0"}
+    train["StateHoliday"] = (
+        train["StateHoliday"]
+        .astype(str)
+        .str.strip()
+        .replace({
+            "0": "0",
+            "0.0": "0",
+            "nan": "0"
+        })
     )
 
     # Convert numeric columns
