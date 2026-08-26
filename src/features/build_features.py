@@ -1,44 +1,270 @@
+from pathlib import Path
+
 import pandas as pd
-import numpy as np
-import os
 
-def build_features():
-    print("Loading cleaned dataset...")
-    df = pd.read_csv('data/processed/clean_merged_data.csv', parse_dates=['Date'])
-    
-    print("Engineering features...")
-    # 1. Competition Open Duration in Months
-    df['CompetitionOpenSinceYear'] = df['CompetitionOpenSinceYear'].fillna(0).astype(int)
-    df['CompetitionOpenSinceMonth'] = df['CompetitionOpenSinceMonth'].fillna(0).astype(int)
-    
-    df['CompetitionOpenMonths'] = 0
-    mask = (df['CompetitionOpenSinceYear'] > 0) & (df['CompetitionOpenSinceMonth'] > 0)
-    df.loc[mask, 'CompetitionOpenMonths'] = (
-        (df['Date'].dt.year - df['CompetitionOpenSinceYear']) * 12 +
-        (df['Date'].dt.month - df['CompetitionOpenSinceMonth'])
-    )
-    df['CompetitionOpenMonths'] = df['CompetitionOpenMonths'].apply(lambda x: max(0, x))
-    
-    # 2. Promo2 Duration in Weeks
-    df['Promo2SinceYear'] = df['Promo2SinceYear'].fillna(0).astype(int)
-    df['Promo2SinceWeek'] = df['Promo2SinceWeek'].fillna(0).astype(int)
-    
-    df['Promo2OpenWeeks'] = 0
-    mask_promo2 = (df['Promo2SinceYear'] > 0) & (df['Promo2SinceWeek'] > 0)
-    df.loc[mask_promo2, 'Promo2OpenWeeks'] = (
-        (df['Date'].dt.year - df['Promo2SinceYear']) * 52 +
-        (df['Date'].dt.isocalendar().week.astype(int) - df['Promo2SinceWeek'])
-    )
-    df['Promo2OpenWeeks'] = df['Promo2OpenWeeks'].apply(lambda x: max(0, x))
-    
-    # 3. Encoding categorical variables
-    df['StateHoliday'] = df['StateHoliday'].astype(str).map({'0': 0, 'a': 1, 'b': 2, 'c': 3}).fillna(0)
-    
-    # Save feature dataset
-    os.makedirs('data/processed', exist_ok=True)
-    output_path = 'data/processed/feature_dataset.csv'
-    df.to_csv(output_path, index=False)
-    print(f"Feature dataset saved to {output_path}. Shape: {df.shape}")
 
-if __name__ == '__main__':
-    build_features()
+# --------------------------------------------------
+# Project paths
+# --------------------------------------------------
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+INPUT_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "processed"
+    / "train_processed.csv"
+)
+
+OUTPUT_DIR = (
+    PROJECT_ROOT
+    / "data"
+    / "processed"
+)
+
+OUTPUT_PATH = (
+    OUTPUT_DIR
+    / "train_features.csv"
+)
+
+
+# --------------------------------------------------
+# Load processed data
+# --------------------------------------------------
+
+def load_data():
+
+    print("Loading processed dataset...")
+
+    df = pd.read_csv(
+        INPUT_PATH,
+        low_memory=False,
+        dtype={"StateHoliday": "string"}
+    )
+
+    print(f"Input shape: {df.shape}")
+
+    return df
+
+
+# --------------------------------------------------
+# Create date features
+# --------------------------------------------------
+
+def create_date_features(df):
+
+    print("\nCreating date features...")
+
+    df["Date"] = pd.to_datetime(
+        df["Date"],
+        errors="coerce"
+    )
+
+    df["Year"] = df["Date"].dt.year
+    df["Month"] = df["Date"].dt.month
+    df["Day"] = df["Date"].dt.day
+    df["WeekOfYear"] = df["Date"].dt.isocalendar().week.astype(int)
+
+    return df
+
+
+# --------------------------------------------------
+# Create basic business features
+# --------------------------------------------------
+
+def create_business_features(df):
+
+    print("\nCreating business features...")
+
+    # Competition information availability
+    df["HasCompetitionDistance"] = (
+        df["CompetitionDistance"].notna().astype(int)
+    )
+
+    # Promo2 availability
+    df["HasPromo2"] = (
+        df["Promo2"].fillna(0).astype(int)
+    )
+
+    # Store age at observation date
+    df["StoreAge"] = (
+        df["Year"]
+        - df["CompetitionOpenSinceYear"]
+    )
+
+    # Prevent invalid negative store-age values
+    df["StoreAge"] = df["StoreAge"].clip(lower=0)
+
+    return df
+
+
+# --------------------------------------------------
+# Create Lag Features
+# --------------------------------------------------
+
+
+def create_lag_features(df):
+
+    print("\nCreating lag features...")
+
+    df = df.sort_values(
+        ["Store", "Date"]
+    ).copy()
+
+    df["Sales_Lag_1"] = (
+        df.groupby("Store")["Sales"]
+        .shift(1)
+    )
+
+    df["Sales_Lag_7"] = (
+        df.groupby("Store")["Sales"]
+        .shift(7)
+    )
+
+    df["Sales_Lag_14"] = (
+        df.groupby("Store")["Sales"]
+        .shift(14)
+    )
+
+    return df
+
+
+# --------------------------------------------------
+# Create Rolling Features
+# --------------------------------------------------
+
+
+def create_rolling_features(df):
+
+    print("\nCreating rolling features...")
+
+    df = df.sort_values(
+        ["Store", "Date"]
+    ).copy()
+
+    # Shift first so today's Sales is never included
+    df["Sales_Rolling_Mean_7"] = (
+        df.groupby("Store")["Sales"]
+        .transform(
+            lambda x: x.shift(1).rolling(7).mean()
+        )
+    )
+
+    df["Sales_Rolling_Mean_14"] = (
+        df.groupby("Store")["Sales"]
+        .transform(
+            lambda x: x.shift(1).rolling(14).mean()
+        )
+    )
+
+    df["Sales_Rolling_Mean_30"] = (
+        df.groupby("Store")["Sales"]
+        .transform(
+            lambda x: x.shift(1).rolling(30).mean()
+        )
+    )
+
+    return df
+
+
+
+# --------------------------------------------------
+# Validate features
+# --------------------------------------------------
+
+def validate_features(df):
+
+    print("\nValidating feature dataset...")
+
+    required_columns = [
+        "Store",
+        "Date",
+        "Sales",
+        "Customers",
+        "Open",
+        "Promo",
+        "StateHoliday",
+        "SchoolHoliday",
+        "Year",
+        "Month",
+        "Day",
+        "WeekOfYear",
+        "HasCompetitionDistance",
+        "HasPromo2",
+        "StoreAge",
+        "Sales_Lag_1",
+        "Sales_Lag_7",
+        "Sales_Lag_14",
+        "Sales_Rolling_Mean_7",
+        "Sales_Rolling_Mean_14",
+        "Sales_Rolling_Mean_30",
+    ]
+
+    missing_columns = [
+        column
+        for column in required_columns
+        if column not in df.columns
+    ]
+
+    assert not missing_columns, (
+        f"Missing feature columns: {missing_columns}"
+    )
+
+    assert df["Date"].notna().all(), (
+        "Missing or invalid dates found."
+    )
+
+    assert len(df) == 1017209, (
+        "Unexpected row count after feature engineering."
+    )
+
+    print("✓ Feature validation passed")
+
+
+# --------------------------------------------------
+# Save features
+# --------------------------------------------------
+
+def save_features(df):
+
+    OUTPUT_DIR.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    df.to_csv(
+        OUTPUT_PATH,
+        index=False
+    )
+
+    print("\nFeature dataset saved to:")
+    print(OUTPUT_PATH)
+
+
+# --------------------------------------------------
+# Main pipeline
+# --------------------------------------------------
+
+def main():
+
+    df = load_data()
+
+    df = create_date_features(df)
+
+    df = create_business_features(df)
+
+    df = create_lag_features(df)
+
+    df = create_rolling_features(df)
+
+    validate_features(df)
+
+    save_features(df)
+
+    print("\n================================")
+    print("FEATURE ENGINEERING COMPLETED")
+    print("================================")
+
+
+if __name__ == "__main__":
+    main()
