@@ -1,6 +1,7 @@
 # Data
 data/raw/*.csv
 data/processed/*.csv
+data/splits/*.csv
 
 # Python
 __pycache__/
