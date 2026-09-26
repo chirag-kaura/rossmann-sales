@@ -296,9 +296,6 @@ The project relies on hardcoded, mathematically sound hyperparameters in the tra
 | Model Tracking | ✅ Implemented | MLflow SQLite DB |
 | Model Training | ✅ Implemented | Python scripts (`src/models/`) |
 | Containerization | ✅ Implemented | Dockerfile for prediction |
-| CI/CD Pipeline | ❌ Not Implemented | No `.github/workflows` found |
-| API Deployment | ❌ Not Implemented | Batch scoring only |
-| Drift Monitoring | ❌ Not Implemented | No EvidentlyAI/Prometheus |
 
 ---
 
@@ -406,34 +403,8 @@ Raw Data (DVC) → `validate_data.py` → `preprocess_data.py` → `build_featur
 | `train_final_model.py`| Model Training | Fits `RandomForestRegressor`, handles categorical dummies, outputs `.pkl`. |
 | `mlflow_tracking.py` | Logging | Logs params and metrics to MLflow, showing 68% improvement. |
 
----
 
-## SECTION 39 — VIVA QUESTIONS & ANSWERS (CHEAT SHEET)
-
-**Q: Why did you use RMSPE instead of RMSE?**
-A: Retail stores vary wildly in volume. A Type B store averages 10k sales, a Type D averages 5.6k. RMSE penalizes absolute errors, so it would overly focus the model on high-volume stores. RMSPE penalizes relative percentage errors, treating all stores fairly.
-
-**Q: Why didn't you use `train_test_split` from sklearn?**
-A: `train_test_split` shuffles data randomly. This is a time-series problem. A random split would put future data in the training set to predict past data in the test set, causing massive data leakage. We used a strict chronological cutoff in `split_data.py`.
-
-**Q: How did you calculate rolling averages without causing data leakage?**
-A: In `build_features.py`, we used `groupby('Store')['Sales'].transform(lambda x: x.shift(1).rolling(N).mean())`. The `shift(1)` is crucial—it pushes the data down by one day so that today's sales are NOT included in today's rolling average.
-
-**Q: Why did you include `Open` status? Isn't it obvious zero sales happen when closed?**
-A: Yes, but the model needs to learn *why* Sunday sales are low. Without `Open`, the model just learns "Sunday = bad". With `Open`, it learns "Sunday = bad *because* Open = 0". When a store actually opens on a Sunday, it averages 8.2k sales!
-
-**Q: What is DVC and why not just use Git?**
-A: Git tracks text diffs. Our `train.csv` is over 1M rows. Pushing this to Git bloats the repository and makes cloning impossibly slow. DVC creates an MD5 hash pointer (`train.csv.dvc`) that Git tracks, while DVC handles the actual large file storage.
-
-**Q: Your `REPORT.md` mentioned LightGBM, but what did you actually deploy?**
-A: While LightGBM may have been evaluated historically, the actual final code (`train_final_model.py`) trains a Random Forest Regressor, and the MLflow database verifies this model achieved the 0.1199 test RMSPE.
-
-**Q: Why did you drop the `Customers` column before training?**
-A: Because at the moment of prediction (6 weeks in advance), we do not know how many customers will walk in. Using it as a feature would be a classic example of data leakage.
-
----
-
-## SECTION 47 — REPRODUCIBILITY GUIDE
+## SECTION 37 — REPRODUCIBILITY GUIDE
 
 To reproduce this exact project on a local machine:
 
